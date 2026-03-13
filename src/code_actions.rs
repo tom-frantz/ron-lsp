@@ -400,7 +400,7 @@ fn create_explicit_field_type_action(
     let main_value = ts_utils::find_main_value(&tree)?;
 
     if main_value.kind() == "struct" {
-        let field_nodes = ts_utils::struct_fields(&main_value);
+        let field_nodes = ts_utils::struct_named_fields(&main_value);
 
         for field_node in field_nodes {
             if let Some(field_name) = ts_utils::field_name(&field_node, content) {
@@ -501,7 +501,7 @@ fn generate_field_insertions(missing_fields: &[&FieldInfo], content: &str) -> Op
     let insert_col = end_pos.column.saturating_sub(1) as u32; // Before the closing paren
 
     // Check if we have existing fields to determine if we need a comma
-    let existing_fields = ts_utils::struct_fields(&struct_node);
+    let existing_fields = ts_utils::struct_named_fields(&struct_node);
     let needs_comma = !existing_fields.is_empty();
 
     // Generate the field text

@@ -105,7 +105,7 @@ fn format_struct(
     output.push('(');
 
     // Get all fields and values to determine if this is a tuple-style or field-style struct
-    let fields = ts_utils::struct_fields(node);
+    let fields = ts_utils::struct_named_fields(node);
     let values = ts_utils::struct_values(node, content);
 
     // If we have fields, use field formatting

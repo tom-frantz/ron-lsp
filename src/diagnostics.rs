@@ -368,7 +368,7 @@ async fn validate_struct_fields(
         if let Some(main_value) = ts_utils::find_main_value(&tree) {
             if main_value.kind() == "struct" {
                 let mut present_field_names: Vec<&str> = Vec::new();
-                let struct_field_nodes = ts_utils::struct_fields(&main_value);
+                let struct_field_nodes = ts_utils::struct_named_fields(&main_value);
 
                 for field_node in struct_field_nodes {
                     let Some(field_name) = ts_utils::field_name(&field_node, content) else {
@@ -624,7 +624,8 @@ async fn validate_node_with_type_info<'a>(
         TypeKind::Struct(fields) => {
             // Validate struct fields
             if node.kind() == "struct" {
-                let field_nodes = ts_utils::struct_fields(node);
+                // TODO fix this
+                let field_nodes = ts_utils::struct_named_fields(node);
                 let mut present_fields = std::collections::HashSet::new();
 
                 // Check each field in the RON
@@ -1002,7 +1003,7 @@ fn find_field_value_position(content: &str, field_name: &str) -> Option<(usize, 
 
     if let Some(main_value) = ts_utils::find_main_value(&tree) {
         if main_value.kind() == "struct" {
-            let fields = ts_utils::struct_fields(&main_value);
+            let fields = ts_utils::struct_named_fields(&main_value);
             for field in fields {
                 if let Some(name) = ts_utils::field_name(&field, content) {
                     if name == field_name {
@@ -1150,7 +1151,7 @@ fn extract_field_value_text(content: &str, field_name: &str) -> Option<String> {
             main_value
         };
 
-        let field_nodes = ts_utils::struct_fields(&struct_node);
+        let field_nodes = ts_utils::struct_named_fields(&struct_node);
         for field_node in field_nodes {
             if let Some(name) = ts_utils::field_name(&field_node, content) {
                 if name == field_name {

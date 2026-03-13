@@ -180,13 +180,27 @@ pub fn field_value<'a>(node: &Node<'a>) -> Option<Node<'a>> {
         .copied()
 }
 
-/// Find all fields in a struct node (non-recursive, only direct children)
-pub fn struct_fields<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
+/// Find all fields in a struct named node (non-recursive, only direct children)
+pub fn struct_named_fields<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
     if node.kind() != "struct" {
         return Vec::new();
     }
 
     children_by_kind(node, "field")
+}
+
+/// Find all fields in a struct tuple node (non-recursive, only direct children)
+pub fn struct_tuple_fields<'a>(node: &Node<'a>) -> Vec<Node<'a>> {
+    if node.kind() != "struct" {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor).skip(1) {
+        results.push(child);
+    }
+    results
 }
 
 /// Get all value children of a struct (for tuple-style structs), excluding the struct name identifier
@@ -278,7 +292,7 @@ pub fn extract_enum_variant(node: &Node, content: &str) -> Option<ParsedEnumVari
 
     // Get data if it's a struct variant
     let data = if node.kind() == "struct" {
-        let fields = struct_fields(node);
+        let fields = struct_named_fields(node);
         let values = struct_values(node, content);
 
         if !fields.is_empty() || !values.is_empty() {
@@ -376,7 +390,7 @@ mod tests {
         let root = tree.root_node();
 
         if let Some(struct_node) = child_by_kind(&root, "struct") {
-            let fields = struct_fields(&struct_node);
+            let fields = struct_named_fields(&struct_node);
             assert_eq!(fields.len(), 2);
         }
     }
@@ -389,7 +403,7 @@ mod tests {
         let root = tree.root_node();
 
         if let Some(struct_node) = child_by_kind(&root, "struct") {
-            let fields = struct_fields(&struct_node);
+            let fields = struct_named_fields(&struct_node);
             if let Some(field) = fields.first() {
                 let name = field_name(field, content);
                 assert_eq!(name, Some("id"));
@@ -422,7 +436,7 @@ mod tests {
         if let Some(value) = find_main_value(&tree) {
             assert_eq!(value.kind(), "struct");
             let values = struct_values(&value, content);
-            let fields = struct_fields(&value);
+            let fields = struct_named_fields(&value);
             assert_eq!(values.len(), 0);
             assert_eq!(fields.len(), 0);
         }
@@ -442,7 +456,7 @@ mod tests {
         let tree = parser.parse(content).unwrap();
 
         if let Some(main) = find_main_value(&tree) {
-            let fields = struct_fields(&main);
+            let fields = struct_named_fields(&main);
             if let Some(author_field) = fields.first() {
                 if let Some(value) = field_value(author_field) {
                     let value_text = node_text(&value, content).unwrap();
