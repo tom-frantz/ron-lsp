@@ -328,7 +328,9 @@ fn lsp_diagnostics_to_portable(diagnostics: &[Diagnostic]) -> Vec<diagnostic_rep
             };
 
             let col_start = d.range.start.character;
-            let col_end = if d.range.end.line > d.range.start.line || d.range.end.character <= d.range.start.character {
+            let col_end = if d.range.end.line > d.range.start.line
+                || d.range.end.character <= d.range.start.character
+            {
                 // Multi-line range or zero-width: use col_start + 1 as fallback
                 col_start + 1
             } else {
@@ -367,15 +369,36 @@ async fn validate_struct_fields(
     if let Some(tree) = parser.parse(content) {
         if let Some(main_value) = ts_utils::find_main_value(&tree) {
             if main_value.kind() == "struct" {
-                let mut present_field_names: Vec<&str> = Vec::new();
-                let struct_field_nodes = ts_utils::struct_named_fields(&main_value);
+                let mut present_field_names: Vec<String> = Vec::new();
 
-                for field_node in struct_field_nodes {
-                    let Some(field_name) = ts_utils::field_name(&field_node, content) else {
+                let (struct_field_nodes, is_tuple_struct) = {
+                    let mut is_tuple = false;
+                    let mut struct_field_nodes = ts_utils::struct_named_fields(&main_value);
+                    if struct_field_nodes.is_empty() {
+                        is_tuple = true;
+                        struct_field_nodes.extend(ts_utils::struct_tuple_fields(&main_value))
+                    }
+                    (struct_field_nodes, is_tuple)
+                };
+
+                for (field_node_index, field_node) in struct_field_nodes.iter().enumerate() {
+                    let field_name = if is_tuple_struct {
+                        Some(field_node_index.to_string())
+                    } else {
+                        ts_utils::field_name(&field_node, content).map(String::from)
+                    };
+
+                    let Some(field_name) = field_name else {
                         continue;
                     };
 
-                    match fields.iter().find(|f| f.name == field_name) {
+                    let field = if is_tuple_struct {
+                        fields.get(field_node_index)
+                    } else {
+                        fields.iter().find(|f| f.name == field_name)
+                    };
+
+                    match field {
                         None => {
                             // Unknown field — report at the field name node
                             let range = ts_utils::node_to_lsp_range(&field_node.child(0).unwrap());
@@ -387,9 +410,16 @@ async fn validate_struct_fields(
                             });
                         }
                         Some(field_info) => {
-                            present_field_names.push(field_name);
+                            present_field_names.push(field_name.clone());
 
-                            let Some(value_node) = ts_utils::field_value(&field_node) else {
+                            let value_node = if is_tuple_struct {
+                                Some(field_node.clone())
+                            } else {
+                                ts_utils::field_value(&field_node)
+                            };
+
+                            let Some(value_node) = value_node else {
+                                panic!("AINT GONNA HAPPEN NO MORE");
                                 continue;
                             };
 
@@ -414,14 +444,14 @@ async fn validate_struct_fields(
                             // Positions come directly from the tree-sitter node — no line adjustment.
                             if let Some(ref map) = ron_map {
                                 if let Some(field_value) =
-                                    map.get(&Value::String(field_name.to_string()))
+                                    map.get(&Value::String(field_name.clone()))
                                 {
                                     let type_mismatch = if let Some(analyzer) = analyzer {
                                         check_type_mismatch_with_enum_validation(
                                             field_value,
                                             &field_info.type_name,
                                             content,
-                                            field_name,
+                                            &field_name,
                                             analyzer,
                                         )
                                         .await
@@ -430,7 +460,7 @@ async fn validate_struct_fields(
                                             field_value,
                                             &field_info.type_name,
                                             content,
-                                            field_name,
+                                            &field_name,
                                         )
                                     };
                                     if let Some(error_msg) = type_mismatch {
@@ -439,8 +469,7 @@ async fn validate_struct_fields(
                                         // For multi-line nodes, use end of first line
                                         // to avoid inverted column ranges
                                         let end_col = if end_pos.row > pos.row {
-                                            let line = content.lines().nth(pos.row)
-                                                .unwrap_or("");
+                                            let line = content.lines().nth(pos.row).unwrap_or("");
                                             line.len() as u32
                                         } else {
                                             end_pos.column as u32
@@ -463,12 +492,15 @@ async fn validate_struct_fields(
 
                 // Missing required fields: compare expected fields against those we saw above.
                 if !has_default {
-                    let missing_fields: Vec<_> = fields
-                        .iter()
-                        .filter(|f| {
-                            !present_field_names.contains(&f.name.as_str()) && !f.is_optional()
-                        })
-                        .collect();
+                    let missing_fields: Vec<_> = if is_tuple_struct {
+                        fields.iter().skip(struct_field_nodes.len()).collect()
+                    } else {
+                        fields
+                            .iter()
+                            .filter(|f| !present_field_names.contains(&f.name) && !f.is_optional())
+                            .collect()
+                    };
+
                     if !missing_fields.is_empty() {
                         let missing_names: Vec<String> =
                             missing_fields.iter().map(|f| f.name.clone()).collect();
@@ -563,6 +595,7 @@ async fn validate_field_value_node<'a>(
     field_type: &str,
     analyzer: &Arc<RustAnalyzer>,
 ) -> Vec<Diagnostic> {
+    // TODO fix this too.
     let mut diagnostics = Vec::new();
     let field_type_normalized = field_type.replace(" ", "");
 
@@ -2370,7 +2403,9 @@ PostReference(Post(
 )"#;
         let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
         assert!(
-            !diagnostics.iter().any(|d| d.message.contains("expected PostType")),
+            !diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected PostType")),
             "Detailed is a valid PostType variant, should not be a type mismatch. Got: {:?}",
             diagnostics
         );
@@ -2384,7 +2419,9 @@ PostReference(Post(
 )"#;
         let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
         assert!(
-            !diagnostics.iter().any(|d| d.message.contains("expected PostType")),
+            !diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected PostType")),
             "Multi-line Detailed should not be a type mismatch. Got: {:?}",
             diagnostics
         );
@@ -2396,7 +2433,9 @@ PostReference(Post(
 )"#;
         let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
         assert!(
-            diagnostics.iter().any(|d| d.message.contains("unknown variant 'Bogus'")),
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("unknown variant 'Bogus'")),
             "Bogus is not a valid PostType variant. Got: {:?}",
             diagnostics
         );
@@ -2408,7 +2447,9 @@ PostReference(Post(
 )"#;
         let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer).await;
         assert!(
-            !diagnostics.iter().any(|d| d.message.contains("expected PostType")),
+            !diagnostics
+                .iter()
+                .any(|d| d.message.contains("expected PostType")),
             "Short is a valid PostType variant. Got: {:?}",
             diagnostics
         );
@@ -2467,8 +2508,8 @@ PostReference(Post(
         // on a different line, which could be less than col_start.
         let multiline_diag = Diagnostic {
             range: Range::new(
-                Position::new(5, 20),  // start: line 5, col 20
-                Position::new(8, 5),   // end: line 8, col 5
+                Position::new(5, 20), // start: line 5, col 20
+                Position::new(8, 5),  // end: line 8, col 5
             ),
             severity: Some(DiagnosticSeverity::ERROR),
             message: "some error".to_string(),
@@ -2490,10 +2531,7 @@ PostReference(Post(
     fn test_lsp_diagnostics_to_portable_single_line() {
         // Single-line diagnostics should pass through col_end unchanged
         let single_line_diag = Diagnostic {
-            range: Range::new(
-                Position::new(3, 10),
-                Position::new(3, 25),
-            ),
+            range: Range::new(Position::new(3, 10), Position::new(3, 25)),
             severity: Some(DiagnosticSeverity::ERROR),
             message: "some error".to_string(),
             ..Default::default()
@@ -2503,5 +2541,110 @@ PostReference(Post(
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].col_start, 10);
         assert_eq!(result[0].col_end, 25);
+    }
+
+    #[tokio::test]
+    async fn test_tuple_struct_newtype_no_false_required_field() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        // Recipe — named struct
+        let recipe_type = TypeInfo {
+            name: "Recipe".to_string(),
+            kind: TypeKind::Struct(vec![
+                FieldInfo {
+                    name: "name".to_string(),
+                    type_name: "String".to_string(),
+                    docs: None,
+                    line: None,
+                    column: None,
+                    has_default: false,
+                },
+                FieldInfo {
+                    name: "inputs".to_string(),
+                    type_name: "String".to_string(),
+                    docs: None,
+                    line: None,
+                    column: None,
+                    has_default: false,
+                },
+                FieldInfo {
+                    name: "outputs".to_string(),
+                    type_name: "String".to_string(),
+                    docs: None,
+                    line: None,
+                    column: None,
+                    has_default: false,
+                },
+                FieldInfo {
+                    name: "time".to_string(),
+                    type_name: "u32".to_string(),
+                    docs: None,
+                    line: None,
+                    column: None,
+                    has_default: false,
+                },
+            ]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+        };
+        analyzer.insert_type_for_test(recipe_type).await;
+
+        // NamedRecipe — tuple struct wrapping Recipe
+        let named_recipe_type = TypeInfo {
+            name: "NamedRecipe".to_string(),
+            kind: TypeKind::Struct(vec![FieldInfo {
+                name: "0".to_string(),
+                type_name: "Recipe".to_string(),
+                docs: None,
+                line: None,
+                column: None,
+                has_default: false,
+            }]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+        };
+        analyzer.insert_type_for_test(named_recipe_type).await;
+
+        // RecipeList — tuple struct wrapping Vec<NamedRecipe>
+        let type_info = TypeInfo {
+            name: "RecipeList".to_string(),
+            kind: TypeKind::Struct(vec![FieldInfo {
+                name: "0".to_string(),
+                type_name: "Vec<NamedRecipe>".to_string(),
+                docs: None,
+                line: None,
+                column: None,
+                has_default: false,
+            }]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+        };
+
+        let content = r#"RecipeList([
+    NamedRecipe(Recipe(
+        name: "SmallPopulationFoodNeeds",
+        inputs: "vegetables",
+        outputs: "",
+        time: 5,
+    )),
+])"#;
+
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Tuple struct newtype should not produce false 'Required fields: 0'. Got: {:#?}",
+            diagnostics
+        );
     }
 }
