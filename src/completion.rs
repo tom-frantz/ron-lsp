@@ -576,6 +576,7 @@ mod tests {
             line: Some(8),
             column: Some(0),
             has_default: false,
+            is_transparent: false,
         };
 
         // Test content with a struct variant (RON uses parentheses)
@@ -633,6 +634,7 @@ mod tests {
             line: Some(8),
             column: Some(0),
             has_default: false,
+            is_transparent: false,
         };
 
         // Test in FieldName context - should get variant completions

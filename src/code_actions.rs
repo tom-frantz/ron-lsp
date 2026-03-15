@@ -588,6 +588,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
         let uri = "file:///test.ron";
 
@@ -617,6 +618,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
         let uri = "file:///test.ron";
 
@@ -735,6 +737,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
         let uri = "file:///test.ron";
 
@@ -852,6 +855,7 @@ mod tests {
             line: Some(8),
             column: Some(0),
             has_default: false,
+            is_transparent: false,
         };
 
         let content = "MyEnum::StructVariant(\n    field_a: \"test\"\n)";

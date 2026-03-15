@@ -1488,6 +1488,32 @@ mod tests {
     use super::*;
     use crate::rust_analyzer::{EnumVariant, FieldInfo};
 
+    /// Create a FieldInfo for a named struct field (all optional fields default to None/false)
+    fn field(name: &str, type_name: &str) -> FieldInfo {
+        FieldInfo {
+            name: name.to_string(),
+            type_name: type_name.to_string(),
+            docs: None,
+            line: None,
+            column: None,
+            has_default: false,
+        }
+    }
+
+    /// Create a TypeInfo for a struct type
+    fn struct_type(name: &str, fields: Vec<FieldInfo>) -> TypeInfo {
+        TypeInfo {
+            name: name.to_string(),
+            kind: TypeKind::Struct(fields),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+            is_transparent: false,
+        }
+    }
+
     #[tokio::test]
     async fn test_enum_variant_validation() {
         let analyzer = Arc::new(RustAnalyzer::new());
@@ -1514,6 +1540,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Valid enum variant
@@ -1593,6 +1620,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Valid struct with enum field
@@ -1638,6 +1666,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // WRONG: author should be User(...), not just 1
@@ -1700,6 +1729,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Type mismatch - string for number
@@ -1769,6 +1799,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Invalid: "Longs" is not a valid PostType variant
@@ -1812,6 +1843,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Unnamed struct syntax should be valid
@@ -1868,6 +1900,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Valid tuple variant
@@ -1925,6 +1958,7 @@ mod tests {
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Struct-like variant (this requires parentheses in RON)
@@ -2009,6 +2043,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Unit variant should not have data
@@ -2087,6 +2122,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Register User type with the analyzer
@@ -2114,6 +2150,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Test with missing required fields in User structs
@@ -2215,6 +2252,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         analyzer.insert_type_for_test(vessel_type).await;
@@ -2235,6 +2273,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Each Vessel is missing name, symbol, color
@@ -2366,6 +2405,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
         analyzer.insert_type_for_test(post_type_info).await;
 
@@ -2394,6 +2434,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Single-line variant should not be a false positive
@@ -2477,6 +2518,7 @@ PostReference(Post(
             line: None,
             column: None,
             has_default: false,
+            is_transparent: false,
         };
 
         // Multi-line value that would cause inverted range
@@ -2543,94 +2585,41 @@ PostReference(Post(
         assert_eq!(result[0].col_end, 25);
     }
 
+    /// Register DetailStruct, NewtypeTupleStruct, and ContainerTupleStruct types into the analyzer.
+    /// Returns the top-level ContainerTupleStruct TypeInfo.
+    async fn setup_DetailStruct_list_types(analyzer: &Arc<RustAnalyzer>) -> TypeInfo {
+        analyzer
+            .insert_type_for_test(struct_type(
+                "DetailStruct",
+                vec![
+                    field("name", "String"),
+                    field("inputs", "String"),
+                    field("outputs", "String"),
+                    field("time", "u32"),
+                ],
+            ))
+            .await;
+
+        analyzer
+            .insert_type_for_test(struct_type(
+                "NewtypeTupleStruct",
+                vec![field("0", "DetailStruct")],
+            ))
+            .await;
+
+        struct_type(
+            "ContainerTupleStruct",
+            vec![field("0", "Vec<NewtypeTupleStruct>")],
+        )
+    }
+
     #[tokio::test]
     async fn test_tuple_struct_newtype_no_false_required_field() {
         let analyzer = Arc::new(RustAnalyzer::new());
+        let type_info = setup_DetailStruct_list_types(&analyzer).await;
 
-        // Recipe — named struct
-        let recipe_type = TypeInfo {
-            name: "Recipe".to_string(),
-            kind: TypeKind::Struct(vec![
-                FieldInfo {
-                    name: "name".to_string(),
-                    type_name: "String".to_string(),
-                    docs: None,
-                    line: None,
-                    column: None,
-                    has_default: false,
-                },
-                FieldInfo {
-                    name: "inputs".to_string(),
-                    type_name: "String".to_string(),
-                    docs: None,
-                    line: None,
-                    column: None,
-                    has_default: false,
-                },
-                FieldInfo {
-                    name: "outputs".to_string(),
-                    type_name: "String".to_string(),
-                    docs: None,
-                    line: None,
-                    column: None,
-                    has_default: false,
-                },
-                FieldInfo {
-                    name: "time".to_string(),
-                    type_name: "u32".to_string(),
-                    docs: None,
-                    line: None,
-                    column: None,
-                    has_default: false,
-                },
-            ]),
-            docs: None,
-            source_file: None,
-            line: None,
-            column: None,
-            has_default: false,
-        };
-        analyzer.insert_type_for_test(recipe_type).await;
-
-        // NamedRecipe — tuple struct wrapping Recipe
-        let named_recipe_type = TypeInfo {
-            name: "NamedRecipe".to_string(),
-            kind: TypeKind::Struct(vec![FieldInfo {
-                name: "0".to_string(),
-                type_name: "Recipe".to_string(),
-                docs: None,
-                line: None,
-                column: None,
-                has_default: false,
-            }]),
-            docs: None,
-            source_file: None,
-            line: None,
-            column: None,
-            has_default: false,
-        };
-        analyzer.insert_type_for_test(named_recipe_type).await;
-
-        // RecipeList — tuple struct wrapping Vec<NamedRecipe>
-        let type_info = TypeInfo {
-            name: "RecipeList".to_string(),
-            kind: TypeKind::Struct(vec![FieldInfo {
-                name: "0".to_string(),
-                type_name: "Vec<NamedRecipe>".to_string(),
-                docs: None,
-                line: None,
-                column: None,
-                has_default: false,
-            }]),
-            docs: None,
-            source_file: None,
-            line: None,
-            column: None,
-            has_default: false,
-        };
-
-        let content = r#"RecipeList([
-    NamedRecipe(Recipe(
+        let content = r#"ContainerTupleStruct([
+    NewtypeTupleStruct(DetailStruct(
         name: "SmallPopulationFoodNeeds",
         inputs: "vegetables",
         outputs: "",
@@ -2645,6 +2634,335 @@ PostReference(Post(
             0,
             "Tuple struct newtype should not produce false 'Required fields: 0'. Got: {:#?}",
             diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tuple_struct_newtype_again() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+        let type_info = setup_DetailStruct_list_types(&analyzer).await;
+
+        let content = r#"ContainerTupleStruct([
+    NewtypeTupleStruct(DetailStruct(
+        name: "details",
+        inputs: "some_value",
+        outputs: "expected_output",
+        time: "wrongtype",
+    )),
+])"#;
+
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Tuple struct newtype should produce error on time field. Got: {:#?}",
+            diagnostics
+        );
+        assert!(
+            diagnostics[0].message.contains("Type mismatch"),
+            "Diagnostic should be a type mismatch. Got: {}",
+            diagnostics[0].message
+        );
+        assert!(
+            diagnostics[0].message.contains("expected u32"),
+            "Diagnostic should mention expected type. Got: {}",
+            diagnostics[0].message
+        );
+        assert_eq!(
+            diagnostics[0].severity,
+            Some(DiagnosticSeverity::ERROR),
+            "Diagnostic should be an error"
+        );
+        assert_eq!(
+            diagnostics[0].range.start.line, 5,
+            "Diagnostic should point to the `time: \"wrongtype\"` line"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tuple_struct_primitive_type_mismatch() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        let type_info = struct_type("MyTuple", vec![field("0", "u32"), field("1", "String")]);
+
+        // Field 0 expects u32 but gets a string
+        let content = r#"MyTuple("hello", "world")"#;
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "Should detect type mismatch for tuple field 0 (expected u32, got string). Got: {:#?}",
+            diagnostics
+        );
+        assert!(
+            diagnostics[0].message.contains("Type mismatch"),
+            "Diagnostic should be a type mismatch. Got: {}",
+            diagnostics[0].message
+        );
+        assert!(
+            diagnostics[0].message.contains("expected u32"),
+            "Diagnostic should mention expected type. Got: {}",
+            diagnostics[0].message
+        );
+        assert_eq!(
+            diagnostics[0].severity,
+            Some(DiagnosticSeverity::ERROR),
+            "Diagnostic should be an error"
+        );
+        assert_eq!(
+            diagnostics[0].range.start.line, 0,
+            "Diagnostic should point to line 0"
+        );
+        assert_eq!(
+            diagnostics[0].range.start.character, 8,
+            "Diagnostic should start at the \"hello\" token"
+        );
+        assert_eq!(
+            diagnostics[0].range.end.character, 15,
+            "Diagnostic should end at the \"hello\" token"
+        );
+
+        // Both fields correct — no diagnostics
+        let content_ok = r#"MyTuple(42, "world")"#;
+        let diagnostics_ok =
+            validate_ron_with_analyzer(content_ok, &type_info, analyzer.clone()).await;
+
+        assert_eq!(
+            diagnostics_ok.len(),
+            0,
+            "Valid tuple struct should produce no diagnostics. Got: {:#?}",
+            diagnostics_ok
+        );
+    }
+
+    fn enum_type(name: &str, variants: Vec<EnumVariant>) -> TypeInfo {
+        TypeInfo {
+            name: name.to_string(),
+            kind: TypeKind::Enum(variants),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+            is_transparent: false,
+        }
+    }
+
+    fn variant(name: &str, fields: Vec<FieldInfo>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            docs: None,
+            line: None,
+            column: None,
+        }
+    }
+
+    fn unit_variant(name: &str) -> EnumVariant {
+        variant(name, vec![])
+    }
+
+    #[tokio::test]
+    async fn test_unit_enum_variant_in_nested_struct_no_false_positive() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        // EnumType — enum with a single unit variant
+        analyzer
+            .insert_type_for_test(enum_type(
+                "EnumType",
+                vec![unit_variant("VariantOne"), unit_variant("VariantTwo")],
+            ))
+            .await;
+
+        // ProgressionItemDescription — struct with an enum field
+        analyzer
+            .insert_type_for_test(struct_type(
+                "NamedStructWithEnum",
+                vec![field("number", "f32"), field("enum", "EnumType")],
+            ))
+            .await;
+
+        let type_info = struct_type(
+            "ContainerStruct",
+            vec![
+                field("name", "String"),
+                field("items", "Vec<NamedStructWithEnum>"),
+            ],
+        );
+
+        let content = r#"ContainerStruct(
+    name: "name",
+    items: [
+        NamedStructWithEnum(
+            number: 10.0,
+            enum: VariantTwo
+        ),
+    ]
+)"#;
+
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Unit enum variant in nested struct should not produce false 'Type mismatch'. Got: {:#?}",
+            diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transparent_newtype_passes_through_string() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        // Wrapper is #[serde(transparent)] around String
+        let wrapper_type = TypeInfo {
+            name: "Wrapper".to_string(),
+            kind: TypeKind::Struct(vec![field("0", "String")]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+            is_transparent: true,
+        };
+        analyzer.insert_type_for_test(wrapper_type.clone()).await;
+
+        // Config has a field of type Wrapper
+        let type_info = struct_type("Config", vec![field("name", "Wrapper")]);
+        analyzer.insert_type_for_test(type_info.clone()).await;
+
+        // Providing a bare string value should produce zero diagnostics
+        let content = "(name: \"hello\")";
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+        assert_eq!(
+            diagnostics.len(),
+            0,
+            "Transparent newtype around String should accept a bare string. Got: {:?}",
+            diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transparent_newtype_catches_inner_type_mismatch() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        // Wrapper is #[serde(transparent)] around String
+        let wrapper_type = TypeInfo {
+            name: "Wrapper".to_string(),
+            kind: TypeKind::Struct(vec![field("0", "String")]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+            is_transparent: true,
+        };
+        analyzer.insert_type_for_test(wrapper_type.clone()).await;
+
+        let type_info = struct_type("Config", vec![field("name", "Wrapper")]);
+        analyzer.insert_type_for_test(type_info.clone()).await;
+
+        // Providing a number when inner type is String should produce a type mismatch
+        let content = "(name: 42)";
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+        assert!(
+            !diagnostics.is_empty(),
+            "Transparent newtype around String should reject a number"
+        );
+        assert!(
+            diagnostics[0].message.contains("Type mismatch"),
+            "Expected type mismatch error, got: {}",
+            diagnostics[0].message
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_transparent_newtype_requires_wrapper_syntax() {
+        let analyzer = Arc::new(RustAnalyzer::new());
+
+        // NonTransparent is a regular tuple struct (NOT transparent)
+        let wrapper_type = TypeInfo {
+            name: "NonTransparent".to_string(),
+            kind: TypeKind::Struct(vec![field("0", "String")]),
+            docs: None,
+            source_file: None,
+            line: None,
+            column: None,
+            has_default: false,
+            is_transparent: false,
+        };
+        analyzer.insert_type_for_test(wrapper_type.clone()).await;
+
+        let type_info = struct_type("Config", vec![field("name", "NonTransparent")]);
+        analyzer.insert_type_for_test(type_info.clone()).await;
+
+        // Providing a bare string should NOT pass — it requires NonTransparent("...") syntax
+        let content = "(name: \"hello\")";
+        let diagnostics = validate_ron_with_analyzer(content, &type_info, analyzer.clone()).await;
+        assert!(
+            !diagnostics.is_empty(),
+            "Non-transparent newtype should not accept a bare string value"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_position_ron_format() {
+        // RON 0.11 SpannedError format: "11:6: Expected comma"
+        let content =
+            "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\n";
+        assert_eq!(
+            parse_error_position("11:6: Expected comma", content),
+            (10, 5)
+        );
+        assert_eq!(parse_error_position("1:1: Unexpected key", content), (0, 0));
+        assert_eq!(
+            parse_error_position("3:10: ExpectedMapEnd", content),
+            (2, 9)
+        );
+    }
+
+    #[test]
+    fn test_parse_error_position_span_format() {
+        // RON 0.11 span format: "11:6-12:1: Expected comma"
+        let content = &"line1\n".repeat(15);
+        assert_eq!(
+            parse_error_position("11:6-12:1: Expected comma", content),
+            (10, 5)
+        );
+    }
+
+    #[test]
+    fn test_strip_position_prefix() {
+        assert_eq!(
+            strip_position_prefix("11:6: Expected comma"),
+            "Expected comma"
+        );
+        assert_eq!(
+            strip_position_prefix("1:1: Unexpected key"),
+            "Unexpected key"
+        );
+        assert_eq!(
+            strip_position_prefix("11:6-12:1: Expected comma"),
+            "Expected comma"
+        );
+        assert_eq!(
+            strip_position_prefix("no position here"),
+            "no position here"
+        );
+    }
+
+    #[test]
+    fn test_simplify_ron_error_strips_position() {
+        assert_eq!(
+            simplify_ron_error("11:6: Expected comma"),
+            "Expected comma between fields"
+        );
+        // The "Expected colon" match requires "expected" (lowercase) and "colon"
+        assert_eq!(
+            simplify_ron_error("1:1: expected colon"),
+            "Expected colon after field name"
         );
     }
 }

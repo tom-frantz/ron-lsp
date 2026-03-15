@@ -45,6 +45,7 @@ pub struct TypeInfo {
     pub line: Option<usize>,
     pub column: Option<usize>,
     pub has_default: bool,
+    pub is_transparent: bool,
 }
 
 impl TypeInfo {
@@ -311,6 +312,8 @@ impl RustAnalyzer {
         let line = Some(start.line);
         let column = Some(start.column);
         let has_default = has_default_derive(&struct_item.attrs);
+        let serde_container =
+            serde_attributes::extract_serde_container_attributes(&struct_item.attrs);
 
         Some(TypeInfo {
             name: full_path,
@@ -320,6 +323,7 @@ impl RustAnalyzer {
             line,
             column,
             has_default,
+            is_transparent: serde_container.is_transparent,
         })
     }
 
@@ -416,6 +420,8 @@ impl RustAnalyzer {
         let line = Some(start.line);
         let column = Some(start.column);
         let has_default = has_default_derive(&enum_item.attrs);
+        let serde_container =
+            serde_attributes::extract_serde_container_attributes(&enum_item.attrs);
 
         Some(TypeInfo {
             name: full_path,
@@ -425,6 +431,7 @@ impl RustAnalyzer {
             line,
             column,
             has_default,
+            is_transparent: serde_container.is_transparent,
         })
     }
 
@@ -602,6 +609,27 @@ mod serde_attributes {
         }
 
         field_attrs
+    }
+
+    pub struct SerdeContainerAttributes {
+        pub is_transparent: bool,
+    }
+
+    pub fn extract_serde_container_attributes(
+        attrs: &[syn::Attribute],
+    ) -> SerdeContainerAttributes {
+        let mut container_attrs = SerdeContainerAttributes {
+            is_transparent: false,
+        };
+        for attr in attrs.iter().filter(|a| a.path().is_ident("serde")) {
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("transparent") {
+                    container_attrs.is_transparent = true;
+                }
+                Ok(())
+            });
+        }
+        container_attrs
     }
 }
 
